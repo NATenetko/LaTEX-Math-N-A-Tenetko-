@@ -98,7 +98,7 @@
        editable DOM and contains no application controls or diagnostics. -->
   <article id="print-view" class="print-view" aria-hidden="true"></article>
 
-  <input id="file-input" type="file" accept=".json,.mathdoc.json,application/json" hidden>
+  <input id="file-input" type="file" accept=".json,.mathdoc.json,.md,.markdown,application/json,text/markdown,text/plain" hidden>
 
   <dialog id="formula-dialog" class="modal formula-modal">
     <form method="dialog" id="formula-form">
