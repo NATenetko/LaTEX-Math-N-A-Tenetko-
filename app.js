@@ -2,6 +2,7 @@
 
 const APP_VERSION = 1;
 const STORAGE_KEY = 'ai-math-document-editor-v1';
+const MARKDOWN_SETTING_KEY = 'ai-math-document-editor-markdown-v1';
 const TOKEN_PREFIX = '⟦MATH:';
 const TOKEN_SUFFIX = '⟧';
 
@@ -116,6 +117,7 @@ function rightRotate(value, amount) {
 function createEmptyDocument() {
   return {
     version: APP_VERSION,
+    rawSource: '',
     rawImports: [],
     blocks: [],
     metadata: { title: 'Без названия', author: '' }
@@ -294,7 +296,7 @@ function tokenFor(block) {
   return `${TOKEN_PREFIX}${block.id}${TOKEN_SUFFIX}`;
 }
 
-function splitProtectedText(value, mathMap) {
+function splitProtectedTextLiteral(value, mathMap) {
   const segments = [];
   const source = String(value ?? '');
   let cursor = 0;
@@ -302,19 +304,19 @@ function splitProtectedText(value, mathMap) {
   while (cursor < source.length) {
     const tokenStart = source.indexOf(TOKEN_PREFIX, cursor);
     if (tokenStart < 0) {
-      pushStyledText(segments, source.slice(cursor));
+      appendTextSegment(segments, source.slice(cursor));
       break;
     }
-    if (tokenStart > cursor) pushStyledText(segments, source.slice(cursor, tokenStart));
+    if (tokenStart > cursor) appendTextSegment(segments, source.slice(cursor, tokenStart));
     const idEnd = source.indexOf(TOKEN_SUFFIX, tokenStart + TOKEN_PREFIX.length);
     if (idEnd < 0) {
-      pushStyledText(segments, source.slice(tokenStart));
+      appendTextSegment(segments, source.slice(tokenStart));
       break;
     }
     const id = source.slice(tokenStart + TOKEN_PREFIX.length, idEnd);
     const math = mathMap.get(id);
     if (math) segments.push(math);
-    else pushStyledText(segments, source.slice(tokenStart, idEnd + TOKEN_SUFFIX.length));
+    else appendTextSegment(segments, source.slice(tokenStart, idEnd + TOKEN_SUFFIX.length));
     cursor = idEnd + TOKEN_SUFFIX.length;
   }
 
@@ -322,45 +324,170 @@ function splitProtectedText(value, mathMap) {
   return segments;
 }
 
-function createTextSegment(text, bold = false, italic = false) {
-  return { id: uuid(), type: 'text', text: String(text ?? ''), bold: Boolean(bold), italic: Boolean(italic) };
+function createTextSegment(text, bold = false, italic = false, code = false) {
+  return {
+    id: uuid(),
+    type: 'text',
+    text: String(text ?? ''),
+    bold: Boolean(bold),
+    italic: Boolean(italic),
+    code: Boolean(code)
+  };
 }
 
-// Text-only formatting parser. It runs only after formulas became protected tokens.
-function pushStyledText(target, text) {
+function appendTextSegment(target, text, styles = {}) {
   if (!text) return;
-  let cursor = 0;
-  while (cursor < text.length) {
-    let start = -1;
-    let marker = '';
-    for (const candidate of ['***', '**', '*']) {
-      const candidateStart = text.indexOf(candidate, cursor);
-      if (candidateStart >= 0 && (start < 0 || candidateStart < start || (candidateStart === start && candidate.length > marker.length))) {
-        start = candidateStart;
-        marker = candidate;
+  const bold = Boolean(styles.bold);
+  const italic = Boolean(styles.italic);
+  const code = Boolean(styles.code);
+  const previous = target[target.length - 1];
+  if (previous?.type === 'text' && previous.bold === bold && previous.italic === italic && previous.code === code) {
+    previous.text += text;
+    return;
+  }
+  target.push(createTextSegment(text, bold, italic, code));
+}
+
+function protectedMathTokenAt(source, index, mathMap) {
+  if (!source.startsWith(TOKEN_PREFIX, index)) return null;
+  const idEnd = source.indexOf(TOKEN_SUFFIX, index + TOKEN_PREFIX.length);
+  if (idEnd < 0) return null;
+  const id = source.slice(index + TOKEN_PREFIX.length, idEnd);
+  return {
+    end: idEnd + TOKEN_SUFFIX.length,
+    raw: source.slice(index, idEnd + TOKEN_SUFFIX.length),
+    math: mathMap.get(id) || null
+  };
+}
+
+function markerCanOpen(source, index, marker) {
+  const next = source[index + marker.length];
+  return Boolean(next && !/\s/.test(next));
+}
+
+function markerCanClose(source, index) {
+  const previous = source[index - 1];
+  return Boolean(previous && !/\s/.test(previous));
+}
+
+function hasClosingInlineMarker(source, from, marker) {
+  let cursor = source.indexOf(marker, from);
+  while (cursor >= 0) {
+    if (markerCanClose(source, cursor)) return true;
+    cursor = source.indexOf(marker, cursor + marker.length);
+  }
+  return false;
+}
+
+// Markdown sees UUID tokens only. It never receives latexOriginal/latexCurrent.
+function splitProtectedText(value, mathMap, markdownEnabled = true) {
+  if (!markdownEnabled) return splitProtectedTextLiteral(value, mathMap);
+
+  const source = String(value ?? '');
+  const segments = [];
+  const styles = { bold: false, italic: false, code: false };
+  let buffer = '';
+  let index = 0;
+
+  const flush = () => {
+    appendTextSegment(segments, buffer, styles);
+    buffer = '';
+  };
+
+  while (index < source.length) {
+    const protectedToken = protectedMathTokenAt(source, index, mathMap);
+    if (protectedToken) {
+      flush();
+      if (protectedToken.math) segments.push(protectedToken.math);
+      else appendTextSegment(segments, protectedToken.raw, styles);
+      index = protectedToken.end;
+      continue;
+    }
+
+    if (styles.code) {
+      if (source[index] === '`') {
+        flush();
+        styles.code = false;
+      } else {
+        buffer += source[index];
+      }
+      index += 1;
+      continue;
+    }
+
+    if (source[index] === '`') {
+      const closing = source.indexOf('`', index + 1);
+      if (closing >= 0) {
+        flush();
+        styles.code = true;
+        index += 1;
+        continue;
       }
     }
-    if (start < 0) {
-      target.push(createTextSegment(text.slice(cursor)));
-      break;
+
+    let marker = '';
+    if (source.startsWith('***', index)) marker = '***';
+    else if (source.startsWith('**', index)) marker = '**';
+    else if (source[index] === '*') marker = '*';
+
+    if (marker) {
+      const closesActive = marker === '***'
+        ? styles.bold && styles.italic
+        : marker === '**' ? styles.bold : styles.italic;
+      const mayClose = closesActive && markerCanClose(source, index);
+      const mayOpen = !closesActive
+        && markerCanOpen(source, index, marker)
+        && hasClosingInlineMarker(source, index + marker.length, marker);
+      if (mayClose || mayOpen) {
+        flush();
+        if (marker === '**' || marker === '***') styles.bold = !styles.bold;
+        if (marker === '*' || marker === '***') styles.italic = !styles.italic;
+        index += marker.length;
+        continue;
+      }
     }
-    if (start > cursor) target.push(createTextSegment(text.slice(cursor, start)));
-    const end = text.indexOf(marker, start + marker.length);
-    if (end < 0) {
-      target.push(createTextSegment(text.slice(start)));
-      break;
-    }
-    target.push(createTextSegment(
-      text.slice(start + marker.length, end),
-      marker === '**' || marker === '***',
-      marker === '*' || marker === '***'
-    ));
-    cursor = end + marker.length;
+
+    buffer += source[index];
+    index += 1;
   }
+
+  flush();
+  if (!segments.length) segments.push(createTextSegment(''));
+  return segments;
 }
 
-function parseProtectedSource(protectedSource, formulas) {
+function parseLiteralProtectedSource(protectedSource, mathMap) {
+  const lines = String(protectedSource ?? '').replace(/\r\n/g, '\n').split('\n');
+  const blocks = [];
+  let paragraphLines = [];
+
+  const flushParagraph = () => {
+    if (!paragraphLines.length) return;
+    const segments = splitProtectedTextLiteral(paragraphLines.join('\n'), mathMap);
+    paragraphLines = [];
+    const meaningful = segments.filter((segment) => segment.type === 'math' || segment.text.trim() !== '');
+    if (meaningful.length === 1 && meaningful[0].type === 'math' && meaningful[0].display) blocks.push(meaningful[0]);
+    else blocks.push({ id: uuid(), type: 'paragraph', segments });
+  };
+
+  for (const line of lines) {
+    if (!line.trim()) flushParagraph();
+    else paragraphLines.push(line);
+  }
+  flushParagraph();
+  return mergeAdjacentParagraphs(blocks);
+}
+
+function isClosingFenceLine(line, fence) {
+  const trimmed = String(line ?? '').trim();
+  return trimmed.length >= fence.length && [...trimmed].every((character) => character === fence[0]);
+}
+
+function parseProtectedSource(protectedSource, formulas, options = {}) {
   const mathMap = new Map(formulas.map((formula) => [formula.id, formula]));
+  const markdownEnabled = options.markdownEnabled !== false;
+  if (!markdownEnabled) return parseLiteralProtectedSource(protectedSource, mathMap);
+
   const lines = String(protectedSource ?? '').replace(/\r\n/g, '\n').split('\n');
   const blocks = [];
   let paragraphLines = [];
@@ -369,7 +496,7 @@ function parseProtectedSource(protectedSource, formulas) {
     if (!paragraphLines.length) return;
     const raw = paragraphLines.join('\n');
     paragraphLines = [];
-    const segments = splitProtectedText(raw, mathMap);
+    const segments = splitProtectedText(raw, mathMap, true);
     const meaningful = segments.filter((segment) => segment.type === 'math' || segment.text.trim() !== '');
     if (meaningful.length === 1 && meaningful[0].type === 'math' && meaningful[0].display) {
       blocks.push(meaningful[0]);
@@ -380,18 +507,34 @@ function parseProtectedSource(protectedSource, formulas) {
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    const fenceMatch = line.match(/^\s*(```|~~~)/);
+    const fenceMatch = line.match(/^\s*(`{3,}|~{3,})(.*)$/);
     if (fenceMatch) {
       flushParagraph();
       const fence = fenceMatch[1];
-      const codeLines = [line];
+      const language = fenceMatch[2].trim();
+      const rawLines = [line];
+      const codeLines = [];
+      let closed = false;
       index += 1;
       while (index < lines.length) {
+        rawLines.push(lines[index]);
+        if (isClosingFenceLine(lines[index], fence)) {
+          closed = true;
+          break;
+        }
         codeLines.push(lines[index]);
-        if (lines[index].trimStart().startsWith(fence)) break;
         index += 1;
       }
-      blocks.push({ id: uuid(), type: 'code', text: codeLines.join('\n') });
+      blocks.push({
+        id: uuid(),
+        type: 'code',
+        text: codeLines.join('\n'),
+        language,
+        fence,
+        markdownCode: true,
+        fenceClosed: closed,
+        rawMarkdown: rawLines.join('\n')
+      });
       continue;
     }
 
@@ -403,7 +546,7 @@ function parseProtectedSource(protectedSource, formulas) {
     const heading = line.match(/^(#{1,3})\s+([\s\S]*)$/);
     if (heading) {
       flushParagraph();
-      blocks.push({ id: uuid(), type: 'heading', level: heading[1].length, segments: splitProtectedText(heading[2], mathMap) });
+      blocks.push({ id: uuid(), type: 'heading', level: heading[1].length, segments: splitProtectedText(heading[2], mathMap, true) });
       continue;
     }
 
@@ -421,7 +564,7 @@ function parseProtectedSource(protectedSource, formulas) {
         index += 1;
       }
       index -= 1;
-      blocks.push({ id: uuid(), type: 'quote', segments: splitProtectedText(quoteLines.join('\n'), mathMap) });
+      blocks.push({ id: uuid(), type: 'quote', segments: splitProtectedText(quoteLines.join('\n'), mathMap, true) });
       continue;
     }
 
@@ -434,7 +577,7 @@ function parseProtectedSource(protectedSource, formulas) {
       while (index < lines.length) {
         const item = lines[index].match(listPattern);
         if (!item) break;
-        list.items.push({ id: uuid(), segments: splitProtectedText(item[1], mathMap) });
+        list.items.push({ id: uuid(), segments: splitProtectedText(item[1], mathMap, true) });
         index += 1;
       }
       index -= 1;
@@ -531,7 +674,7 @@ function htmlBodyToProtectedText(body) {
   return [...body.childNodes].map(walk).join('').replace(/\n{3,}/g, '\n\n').trimEnd();
 }
 
-function extractClipboardDocument(plain, html) {
+function extractClipboardDocument(plain, html, options = {}) {
   const plainResult = protectPlainSource(plain);
   const htmlResult = html ? protectHtmlSource(html) : { protectedSource: '', formulas: [] };
 
@@ -539,17 +682,17 @@ function extractClipboardDocument(plain, html) {
   // formula delimiters. This avoids nested clipboard <div> wrappers turning
   // one visual answer into dozens of artificial editor blocks.
   if (plainResult.formulas.length > 0 || !html) {
-    return { blocks: parseProtectedSource(plainResult.protectedSource, plainResult.formulas), formulas: plainResult.formulas, source: 'plain' };
+    return { blocks: parseProtectedSource(plainResult.protectedSource, plainResult.formulas, options), formulas: plainResult.formulas, source: 'plain' };
   }
   if (htmlResult.formulas.length > 0) {
-    return { blocks: parseProtectedSource(htmlResult.protectedSource, htmlResult.formulas), formulas: htmlResult.formulas, source: 'html' };
+    return { blocks: parseProtectedSource(htmlResult.protectedSource, htmlResult.formulas, options), formulas: htmlResult.formulas, source: 'html' };
   }
-  return { blocks: parseProtectedSource(plainResult.protectedSource, []), formulas: [], source: 'plain' };
+  return { blocks: parseProtectedSource(plainResult.protectedSource, [], options), formulas: [], source: 'plain' };
 }
 
-function createDocumentFromMarkdown(markdown, fileName = 'document.md') {
+function createDocumentFromMarkdown(markdown, fileName = 'document.md', options = {}) {
   const exactSource = String(markdown ?? '');
-  const imported = extractClipboardDocument(exactSource, '');
+  const imported = extractClipboardDocument(exactSource, '', options);
   const title = String(fileName || 'document.md')
     .replace(/\.(?:md|markdown)$/i, '')
     .trim() || 'Без названия';
@@ -557,11 +700,13 @@ function createDocumentFromMarkdown(markdown, fileName = 'document.md') {
   return {
     document: {
       version: APP_VERSION,
+      rawSource: exactSource,
       rawImports: [{
         id: uuid(),
         plain: exactSource,
         html: '',
         source: 'markdown',
+        markdownEnabled: options.markdownEnabled !== false,
         fileName: String(fileName || 'document.md'),
         timestamp: new Date().toISOString()
       }],
@@ -573,16 +718,44 @@ function createDocumentFromMarkdown(markdown, fileName = 'document.md') {
 }
 
 function serializeSegments(segments) {
-  return (segments || []).map((segment) => {
+  let result = '';
+  let bold = false;
+  let italic = false;
+
+  const closeStyles = () => {
+    if (italic) result += '*';
+    if (bold) result += '**';
+    bold = false;
+    italic = false;
+  };
+
+  const openStyles = (nextBold, nextItalic) => {
+    if (nextBold) result += '**';
+    if (nextItalic) result += '*';
+    bold = nextBold;
+    italic = nextItalic;
+  };
+
+  for (const segment of segments || []) {
     if (segment.type === 'math') {
-      if (segment.latexSourceMissing && !segment.latexCurrent) return '[Математический объект: исходный LaTeX отсутствует]';
-      return `${segment.display ? '\\[' : '\\('}${segment.latexCurrent}${segment.display ? '\\]' : '\\)'}`;
+      result += segment.latexSourceMissing && !segment.latexCurrent
+        ? '[Математический объект: исходный LaTeX отсутствует]'
+        : `${segment.display ? '\\[' : '\\('}${segment.latexCurrent}${segment.display ? '\\]' : '\\)'}`;
+      continue;
+    }
+
+    const nextBold = Boolean(segment.bold);
+    const nextItalic = Boolean(segment.italic);
+    if (nextBold !== bold || nextItalic !== italic) {
+      closeStyles();
+      openStyles(nextBold, nextItalic);
     }
     let text = segment.text ?? '';
-    if (segment.bold) text = `**${text}**`;
-    if (segment.italic) text = `*${text}*`;
-    return text;
-  }).join('');
+    if (segment.code) text = `\`${text}\``;
+    result += text;
+  }
+  closeStyles();
+  return result;
 }
 
 function serializeForAI(documentModel) {
@@ -596,7 +769,15 @@ function serializeForAI(documentModel) {
     if (block.type === 'quote') return serializeSegments(block.segments).split('\n').map((line) => `> ${line}`).join('\n');
     if (block.type === 'list') return (block.items || []).map((item, index) => `${block.ordered ? `${index + 1}.` : '-'} ${serializeSegments(item.segments)}`).join('\n');
     if (block.type === 'hr') return '---';
-    if (block.type === 'code') return block.text ?? '';
+    if (block.type === 'code') {
+      if (block.markdownCode) {
+        if (typeof block.rawMarkdown === 'string') return block.rawMarkdown;
+        const fence = block.fence || '```';
+        const opening = `${fence}${block.language || ''}`;
+        return `${opening}\n${block.text ?? ''}${block.fenceClosed === false ? '' : `\n${fence}`}`;
+      }
+      return block.text ?? '';
+    }
     return '';
   }).join('\n\n');
 }
@@ -647,6 +828,7 @@ function validateProject(project) {
   if (!project || typeof project !== 'object' || !Array.isArray(project.blocks)) throw new Error('Файл не похож на проект MathDoc.');
   if (Number(project.version) !== APP_VERSION) throw new Error(`Версия проекта ${project.version} пока не поддерживается.`);
   project.rawImports = Array.isArray(project.rawImports) ? project.rawImports : [];
+  project.rawSource = String(project.rawSource ?? project.rawImports[0]?.plain ?? '');
   project.metadata = { title: 'Без названия', author: '', ...(project.metadata || {}) };
   rehydrateIdsAndHashes(project);
   return project;
@@ -666,12 +848,14 @@ function rehydrateIdsAndHashes(project) {
     for (const segment of block.segments || []) {
       segment.id ||= uuid();
       if (segment.type === 'math') visitMath(segment);
+      else segment.code = Boolean(segment.code);
     }
     for (const item of block.items || []) {
       item.id ||= uuid();
       for (const segment of item.segments || []) {
         segment.id ||= uuid();
         if (segment.type === 'math') visitMath(segment);
+        else segment.code = Boolean(segment.code);
       }
     }
   }
@@ -724,11 +908,14 @@ function bootApplication() {
     toastTimer: 0,
     mathRenderGeneration: 0,
     lastImportDiagnostic: '',
-    titleBeforePrint: ''
+    titleBeforePrint: '',
+    markdownEnabled: loadMarkdownPreference()
   };
 
   elements.title.value = app.document.metadata.title;
   elements.author.value = app.document.metadata.author;
+  elements.markdownToggle = document.querySelector('#markdown-toggle');
+  elements.markdownToggle.checked = app.markdownEnabled;
   bindEvents();
   renderDocument();
 
@@ -758,6 +945,13 @@ function bootApplication() {
     elements.title.addEventListener('input', () => { app.document.metadata.title = elements.title.value; markChanged(); });
     elements.author.addEventListener('input', () => { app.document.metadata.author = elements.author.value; markChanged(); });
     elements.fileInput.addEventListener('change', openProject);
+    elements.markdownToggle.addEventListener('change', () => {
+      app.markdownEnabled = elements.markdownToggle.checked;
+      try { localStorage.setItem(MARKDOWN_SETTING_KEY, app.markdownEnabled ? 'on' : 'off'); } catch (_) { /* UI state still applies. */ }
+      showToast(app.markdownEnabled
+        ? 'Markdown включён для новых вставок и .md-файлов'
+        : 'Markdown выключен: новые вставки будут показаны буквально');
+    });
     elements.formulaForm.addEventListener('submit', submitFormulaDialog);
     elements.formulaCurrent.addEventListener('input', scheduleFormulaPreview);
 
@@ -782,6 +976,11 @@ function bootApplication() {
       if (saved) return validateProject(JSON.parse(saved));
     } catch (_) { /* Explicit JSON save remains available. */ }
     return createEmptyDocument();
+  }
+
+  function loadMarkdownPreference() {
+    try { return localStorage.getItem(MARKDOWN_SETTING_KEY) !== 'off'; }
+    catch (_) { return true; }
   }
 
   function persistAutosave() {
@@ -842,8 +1041,15 @@ function bootApplication() {
 
   function importClipboard(plain, html) {
     // This snapshot is append-only and never updated by editor operations.
-    app.document.rawImports.push({ id: uuid(), plain, html, timestamp: new Date().toISOString() });
-    const imported = extractClipboardDocument(plain, html);
+    app.document.rawImports.push({
+      id: uuid(),
+      plain,
+      html,
+      markdownEnabled: app.markdownEnabled,
+      timestamp: new Date().toISOString()
+    });
+    if (!app.document.rawSource) app.document.rawSource = plain;
+    const imported = extractClipboardDocument(plain, html, { markdownEnabled: app.markdownEnabled });
     app.lastImportDiagnostic = buildImportDiagnostic(plain, html, imported);
     if (app.document.blocks.length) app.document.blocks.push(...imported.blocks);
     else app.document.blocks = imported.blocks;
@@ -965,8 +1171,8 @@ function bootApplication() {
   function renderSegments(block, segments = [], generation, itemId = null) {
     return segments.map((segment) => {
       if (segment.type === 'math') return renderMath(segment, true, generation);
-      const span = document.createElement('span');
-      span.className = `text-segment${segment.bold ? ' is-bold' : ''}${segment.italic ? ' is-italic' : ''}`;
+      const span = document.createElement(segment.code ? 'code' : 'span');
+      span.className = `text-segment${segment.bold ? ' is-bold' : ''}${segment.italic ? ' is-italic' : ''}${segment.code ? ' inline-code' : ''}`;
       span.contentEditable = 'true';
       span.spellcheck = true;
       span.dataset.segmentId = segment.id;
@@ -1216,7 +1422,7 @@ function bootApplication() {
       const isMarkdown = /\.(?:md|markdown)$/i.test(file.name) || file.type === 'text/markdown';
 
       if (isMarkdown) {
-        const imported = createDocumentFromMarkdown(source, file.name);
+        const imported = createDocumentFromMarkdown(source, file.name, { markdownEnabled: app.markdownEnabled });
         app.document = imported.document;
         app.lastImportDiagnostic = buildImportDiagnostic(source, '', {
           formulas: imported.formulas,
@@ -1339,6 +1545,12 @@ function bootApplication() {
         continue;
       }
       let node = document.createTextNode(segment.text ?? '');
+      if (segment.code) {
+        const code = document.createElement('code');
+        code.className = 'inline-code';
+        code.append(node);
+        node = code;
+      }
       if (segment.bold) {
         const strong = document.createElement('strong');
         strong.append(node);

@@ -81,11 +81,14 @@ button { color: inherit; }
   border-radius: 8px; color: var(--ink); background: rgba(255,255,255,.72); outline: none;
 }
 .document-meta input:focus { border-color: #5c998a; box-shadow: 0 0 0 3px rgba(17,132,108,.1); }
-.integrity-card, .tip-card { margin-top: 12px; padding: 15px; border: 1px solid #d8e0dc; border-radius: 12px; background: rgba(255,255,255,.62); }
+.integrity-card, .markdown-card, .tip-card { margin-top: 12px; padding: 15px; border: 1px solid #d8e0dc; border-radius: 12px; background: rgba(255,255,255,.62); }
 .eyebrow { display: block; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
 .integrity-card > strong { display: block; margin-top: 7px; font: 700 20px var(--serif); }
-.integrity-card p, .tip-card p { color: var(--muted); font-size: 12px; line-height: 1.55; }
+.integrity-card p, .markdown-card p, .tip-card p { color: var(--muted); font-size: 12px; line-height: 1.55; }
 .integrity-line { display: flex; justify-content: space-between; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 11px; }
+.markdown-switch { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; font-size: 12px; font-weight: 750; }
+.markdown-switch input { width: 34px; height: 18px; margin: 0; accent-color: var(--green); }
+.markdown-card p { margin: 9px 0 0; }
 kbd { padding: 2px 5px; border: 1px solid #c5ceca; border-radius: 4px; color: var(--ink); background: white; box-shadow: 0 1px 0 #bac4bf; font-size: 10px; }
 
 .page-wrap { position: relative; padding: 42px clamp(18px, 5vw, 72px) 80px; overflow: auto; }
@@ -120,6 +123,7 @@ kbd { padding: 2px 5px; border: 1px solid #c5ceca; border-radius: 4px; color: va
 .text-segment[data-placeholder]:empty::before { content: attr(data-placeholder); color: #aeb6b2; }
 .text-segment.is-bold { font-weight: 700; }
 .text-segment.is-italic { font-style: italic; }
+.inline-code { padding: .12em .38em; border: 1px solid #d9dfdc; border-radius: 5px; color: #26443c; background: #f2f5f3; font: .86em/1.45 var(--mono); }
 .quote-block { margin: 1.2em 0; padding: 5px 0 5px 18px; border-left: 3px solid #8db3a8; color: #4f5b57; }
 .list-block { margin: .8em 0 1em; padding-left: 1.6em; font: 16px/1.68 var(--serif); }
 .list-block li { padding-left: .25em; margin: .25em 0; }
@@ -241,6 +245,7 @@ td code { display: block; min-width: 190px; max-width: 380px; white-space: pre-w
   .print-block blockquote { margin: .9em 0; padding-left: 1em; border-left: 2px solid #888; color: #333; }
   .print-block ul, .print-block ol { margin: .55em 0 .8em; padding-left: 1.6em; }
   .print-block pre { margin: .8em 0; padding: .7em; white-space: pre-wrap; border: 1px solid #bbb; font: 9pt/1.45 var(--mono); }
+  .print-block .inline-code { padding: .08em .3em; border: 1px solid #bbb; border-radius: 3px; background: #f4f4f4; font: .86em/1.4 var(--mono); }
   .print-block hr { margin: 1.5em 0; border: 0; border-top: 1px solid #777; }
   .print-math {
     max-width: 100%;
