@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <title>AI Math Document Editor</title>
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    window.MathJax = {
+      tex: {
+        packages: { '[+]': ['ams'] },
+        inlineMath: [['\\(', '\\)']],
+        displayMath: [['\\[', '\\]']]
+      },
+      options: {
+        enableMenu: false,
+        enableAssistiveMml: false,
+        menuOptions: {
+          settings: { assistiveMml: false }
+        }
+      },
+      startup: { typeset: false }
+    };
+  </script>
+  <script id="mathjax-script" defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-svg.js"></script>
+</head>
+<body>
+  <header class="topbar" aria-label="Главная панель">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">∑</div>
+      <div>
+        <strong>AI Math Document Editor</strong>
+        <span>LaTeX без самопроизвольных изменений</span>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button id="new-btn" class="button ghost" type="button">Новый</button>
+      <button id="open-btn" class="button ghost" type="button">Открыть</button>
+      <button id="save-btn" class="button ghost" type="button">Сохранить</button>
+      <button id="paste-btn" class="button primary" type="button">Вставить</button>
+      <button id="audit-btn" class="button ghost" type="button">Проверить формулы</button>
+      <button id="copy-ai-btn" class="button ghost" type="button">Копировать для ИИ</button>
+      <button id="copy-original-btn" class="button ghost" type="button">Копировать оригинал</button>
+      <button id="print-btn" class="button dark" type="button">Экспорт PDF</button>
+    </div>
+  </header>
+
+  <section class="formatbar" aria-label="Форматирование текста">
+    <div class="format-group">
+      <button class="format-button" type="button" data-block-type="paragraph" title="Обычный текст">Текст</button>
+      <button class="format-button" type="button" data-block-type="heading" data-level="1" title="Заголовок 1">H1</button>
+      <button class="format-button" type="button" data-block-type="heading" data-level="2" title="Заголовок 2">H2</button>
+      <button class="format-button" type="button" data-block-type="heading" data-level="3" title="Заголовок 3">H3</button>
+    </div>
+    <div class="format-group">
+      <button id="bold-btn" class="format-button strong" type="button" title="Жирный">B</button>
+      <button id="italic-btn" class="format-button italic" type="button" title="Курсив">I</button>
+      <button id="quote-btn" class="format-button" type="button" title="Цитата">❝</button>
+      <button id="ul-btn" class="format-button" type="button" title="Маркированный список">• Список</button>
+      <button id="ol-btn" class="format-button" type="button" title="Нумерованный список">1. Список</button>
+    </div>
+    <div class="format-group push-right">
+      <button id="add-text-btn" class="format-button" type="button">+ Абзац</button>
+      <button id="add-math-btn" class="format-button formula-action" type="button">+ Формула</button>
+      <button id="add-rule-btn" class="format-button" type="button">+ Линия</button>
+    </div>
+  </section>
+
+  <main class="workspace">
+    <aside class="document-meta">
+      <label for="title-input">Название</label>
+      <input id="title-input" type="text" value="Без названия" autocomplete="off">
+      <label for="author-input">Автор</label>
+      <input id="author-input" type="text" placeholder="Не указан" autocomplete="off">
+
+      <div class="integrity-card">
+        <span class="eyebrow">Целостность</span>
+        <strong id="formula-count">0 формул</strong>
+        <p id="integrity-summary">Вставьте документ, чтобы начать проверку.</p>
+        <div class="integrity-line"><span>Raw-снимки</span><b id="raw-count">0</b></div>
+        <div class="integrity-line"><span>Версия</span><b>1</b></div>
+      </div>
+
+      <div class="tip-card">
+        <span class="eyebrow">Как начать</span>
+        <p>Скопируйте ответ нейросети и нажмите <kbd>⌘V</kbd> или <kbd>Ctrl+V</kbd> в этой области.</p>
+      </div>
+    </aside>
+
+    <section class="page-wrap">
+      <div id="editor" class="paper" tabindex="0" aria-label="Редактор математического документа"></div>
+      <div id="save-state" class="save-state" aria-live="polite">Готово</div>
+    </section>
+  </main>
+
+  <!-- Built from Document.blocks immediately before printing. It never reuses
+       editable DOM and contains no application controls or diagnostics. -->
+  <article id="print-view" class="print-view" aria-hidden="true"></article>
+
+  <input id="file-input" type="file" accept=".json,.mathdoc.json,application/json" hidden>
+
+  <dialog id="formula-dialog" class="modal formula-modal">
+    <form method="dialog" id="formula-form">
+      <div class="modal-header">
+        <div>
+          <span class="eyebrow">Защищённый объект</span>
+          <h2 id="formula-dialog-title">Редактор формулы</h2>
+        </div>
+        <button class="icon-button" value="cancel" aria-label="Закрыть" type="submit">×</button>
+      </div>
+      <div class="source-original-wrap">
+        <label>Исходный LaTeX — только чтение</label>
+        <pre id="formula-original"></pre>
+      </div>
+      <label for="formula-current">Текущий LaTeX</label>
+      <textarea id="formula-current" rows="7" spellcheck="false"></textarea>
+      <div class="formula-preview-wrap">
+        <span class="eyebrow">Предпросмотр</span>
+        <div id="formula-preview" class="formula-preview"></div>
+      </div>
+      <div id="missing-source-note" class="warning-note" hidden>
+        В HTML не найден точный исходный LaTeX. Визуальное восстановление намеренно отключено.
+      </div>
+      <div class="modal-actions">
+        <button class="button ghost" value="cancel" type="submit">Отмена</button>
+        <button id="formula-save" class="button primary" value="default" type="submit">Сохранить</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="audit-dialog" class="modal audit-modal">
+    <div class="modal-header sticky">
+      <div>
+        <span class="eyebrow">Посимвольная проверка</span>
+        <h2>Аудит формул</h2>
+      </div>
+      <button id="audit-close" class="icon-button" aria-label="Закрыть" type="button">×</button>
+    </div>
+    <div id="audit-banner" class="audit-banner"></div>
+    <div class="test-grid">
+      <div class="test-card"><span>Формулы документа</span><strong id="audit-document-result">—</strong></div>
+      <div class="test-card"><span>Round-trip документа</span><strong id="audit-roundtrip-result">—</strong></div>
+      <div class="test-card"><span>Обязательные тесты</span><strong id="audit-fixtures-result">—</strong></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>№</th><th>Исходный LaTeX</th><th>Текущий LaTeX</th><th>Изменён?</th><th>Hash original</th><th>Hash current</th></tr></thead>
+        <tbody id="audit-body"></tbody>
+      </table>
+    </div>
+  </dialog>
+
+  <div id="paste-hint" class="paste-hint" hidden>
+    <div class="paste-hint-card">
+      <span class="paste-icon">⌘V</span>
+      <strong>Вставьте скопированный ответ</strong>
+      <p>Нажмите Cmd+V или Ctrl+V. Приложение прочитает plain text и HTML одновременно.</p>
+      <button id="paste-cancel" class="button ghost" type="button">Отмена</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>
