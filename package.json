@@ -1,0 +1,14 @@
+{
+  "name": "tenetko-math-editor",
+  "productName": "LaTEX Math Tenetko",
+  "version": "1.6.3",
+  "private": true,
+  "description": "Offline math document editor with paginated A4 PDF export",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node tests/roundtrip.test.js && node tests/reader.test.cjs && node tests/media.test.cjs && node tests/batch.test.cjs && node tests/draft-frontend.test.cjs",
+    "build:mac": "node desktop/build-mac.cjs"
+  },
+  "devDependencies": { "electron": "44.4.5" }
+}

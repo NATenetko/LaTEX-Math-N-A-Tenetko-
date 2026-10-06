@@ -573,7 +573,6 @@ function parseProtectedSource(protectedSource, formulas, options = {}) {
     if (unordered || ordered) {
       flushParagraph();
       const list = { id: uuid(), type: 'list', ordered: Boolean(ordered), items: [] };
-      if (ordered) list.start = Number(line.match(/^\s*(\d+)/)[1]);
       const listPattern = ordered ? /^\s*\d+[.)]\s+([\s\S]*)$/ : /^\s*[-+*]\s+([\s\S]*)$/;
       while (index < lines.length) {
         const item = lines[index].match(listPattern);
@@ -768,7 +767,7 @@ function serializeForAI(documentModel) {
     if (block.type === 'heading') return `${'#'.repeat(block.level || 1)} ${serializeSegments(block.segments)}`;
     if (block.type === 'paragraph') return serializeSegments(block.segments);
     if (block.type === 'quote') return serializeSegments(block.segments).split('\n').map((line) => `> ${line}`).join('\n');
-    if (block.type === 'list') return (block.items || []).map((item, index) => `${block.ordered ? `${index + (block.start ?? 1)}.` : '-'} ${serializeSegments(item.segments)}`).join('\n');
+    if (block.type === 'list') return (block.items || []).map((item, index) => `${block.ordered ? `${index + 1}.` : '-'} ${serializeSegments(item.segments)}`).join('\n');
     if (block.type === 'hr') return '---';
     if (block.type === 'code') {
       if (block.markdownCode) {
@@ -920,9 +919,6 @@ function bootApplication() {
   bindEvents();
   renderDocument();
 
-  // Read-only presentation extension: it receives an isolated snapshot, not the model.
-  window.ArticleReader?.attach(() => structuredClone(app.document));
-
   function bindEvents() {
     document.querySelector('#new-btn').addEventListener('click', newDocument);
     document.querySelector('#open-btn').addEventListener('click', () => elements.fileInput.click());
@@ -997,7 +993,6 @@ function bootApplication() {
   }
 
   function markChanged() {
-    window.dispatchEvent(new Event('article-document-changed'));
     persistAutosave();
     updateSidebar();
   }
@@ -1089,7 +1084,6 @@ function bootApplication() {
   }
 
   function renderDocument() {
-    window.dispatchEvent(new Event('article-document-changed'));
     const generation = ++app.mathRenderGeneration;
     elements.editor.replaceChildren();
     if (!app.document.blocks.length) {
@@ -1132,7 +1126,6 @@ function bootApplication() {
     if (block.type === 'list') {
       const list = document.createElement(block.ordered ? 'ol' : 'ul');
       list.className = 'list-block';
-      if (block.ordered) list.start = block.start ?? 1;
       for (const item of block.items || []) {
         const li = document.createElement('li');
         li.append(...renderSegments(block, item.segments, generation, item.id));
@@ -1486,32 +1479,14 @@ function bootApplication() {
 
   async function exportPdf() {
     if (!app.document.blocks.length) return showToast('Документ пуст', true);
-    const button = document.querySelector('#print-btn');
-    button.disabled = true;
-    try {
-      elements.saveState.textContent = 'Подготовка формул и страниц A4…';
-      await buildPrintView();
-      applyPdfStyle(elements.printView);
-      const pages = await paginatePrintView(elements.printView);
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      stripNonVisualMathLayers(elements.printView);
-      elements.saveState.textContent = `Подготовлено страниц: ${pages}`;
-      if (window.mathDesktop) {
-        const result = await window.mathDesktop.exportPdf(app.document.metadata.title);
-        if (result.error) throw new Error(result.error);
-        if (!result.cancelled) showToast('PDF сохранён');
-        window.dispatchEvent(new Event('afterprint'));
-      } else {
-        app.titleBeforePrint = document.title;
-        document.title = '\u200B';
-        window.print();
-      }
-    } catch (error) {
-      showToast(`Экспорт: ${error.message}`, true);
-      window.dispatchEvent(new Event('afterprint'));
-    } finally {
-      button.disabled = false;
-    }
+    elements.saveState.textContent = 'Подготовка формул к печати…';
+    await buildPrintView();
+    elements.saveState.textContent = 'Формулы готовы к печати';
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    stripNonVisualMathLayers(elements.printView);
+    app.titleBeforePrint = document.title;
+    document.title = '\u200B';
+    window.print();
   }
 
   async function buildPrintView() {
@@ -1545,7 +1520,6 @@ function bootApplication() {
     }
     if (block.type === 'list') {
       const list = document.createElement(block.ordered ? 'ol' : 'ul');
-      if (block.ordered) list.start = block.start ?? 1;
       for (const item of block.items || []) {
         const li = document.createElement('li');
         appendPrintSegments(li, item.segments, renderTasks);

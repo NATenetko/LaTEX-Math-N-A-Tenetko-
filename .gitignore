@@ -1,0 +1,12 @@
+node_modules/
+dist/
+tmp/
+desktop/bin/
+.DS_Store
+*.log
+*.mathdoc.json
+*.wav
+*.mp3
+*.ogg
+*.m4a
+*.mp4

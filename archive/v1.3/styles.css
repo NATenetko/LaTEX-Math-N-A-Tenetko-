@@ -89,9 +89,6 @@ button { color: inherit; }
 .markdown-switch { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; font-size: 12px; font-weight: 750; }
 .markdown-switch input { width: 34px; height: 18px; margin: 0; accent-color: var(--green); }
 .markdown-card p { margin: 9px 0 0; }
-.pdf-style-card { margin-top: 12px; padding: 15px; border: 1px solid #d8e0dc; border-radius: 12px; background: rgba(255,255,255,.62); }
-.pdf-style-card select { width: 100%; padding: 9px 7px; border: 1px solid #cbd6d0; border-radius: 6px; color: var(--ink); background: white; font: 12px var(--sans); }
-.pdf-style-card p { color: var(--muted); font-size: 12px; line-height: 1.55; }
 kbd { padding: 2px 5px; border: 1px solid #c5ceca; border-radius: 4px; color: var(--ink); background: white; box-shadow: 0 1px 0 #bac4bf; font-size: 10px; }
 
 .page-wrap { position: relative; padding: 42px clamp(18px, 5vw, 72px) 80px; overflow: auto; }
@@ -217,69 +214,37 @@ td code { display: block; min-width: 190px; max-width: 380px; white-space: pre-w
   .test-grid { grid-template-columns: 1fr; }
 }
 
-/* Every physical page owns its margins, both during measurement and printing. */
+/* Zero page margin suppresses browser-generated date, URL and file path.
+   The readable document margin is owned by .print-view instead. */
 @page { size: A4; margin: 0; }
 
-.print-layout {
-    --pdf-font: 'Times New Roman', Times, serif;
-    --pdf-heading-color: #111;
-    --pdf-body-size: 12pt;
-    --pdf-leading: 1.5;
+@media print {
+  html, body { margin: 0 !important; padding: 0 !important; background: white; }
+  body > :not(.print-view) { display: none !important; }
+  .print-view {
     display: block !important;
-    position: absolute;
-    left: -100000px;
-    top: 0;
-    width: 210mm;
+    width: auto;
     margin: 0;
-    padding: 0;
+    padding: 16mm 17mm 18mm;
     box-sizing: border-box;
     color: #111;
     background: white;
-    font: var(--pdf-body-size)/var(--pdf-leading) var(--pdf-font);
+    font: 11.5pt/1.55 var(--serif);
   }
-  .print-layout[data-pdf-style="modern"] {
-    --pdf-font: Arial, Helvetica, sans-serif;
-    --pdf-heading-color: #243e50;
-    --pdf-body-size: 11pt;
-    --pdf-leading: 1.55;
-  }
-  .print-page {
-    width: 210mm;
-    height: 297mm;
-    padding: 16mm 17mm 18mm;
-    box-sizing: border-box;
-    break-after: page;
-    break-inside: avoid;
-  }
-  .print-page:last-child { break-after: auto; }
-  .print-page-content { display: flow-root; height: 263mm; position: relative; }
-  .print-block { display: flow-root; margin: 0 0 .72em; }
-  .print-block p { margin: 0; orphans: 2; widows: 2; }
-  .print-block p, .print-block li, .print-block blockquote {
-    white-space: normal;
-    text-align: justify;
-    text-align-last: start;
-    overflow-wrap: anywhere;
-    hyphens: auto;
-  }
+  .print-block { margin: 0 0 .72em; }
+  .print-block p { margin: 0; white-space: pre-wrap; }
   .print-block h1, .print-block h2, .print-block h3 {
-    color: var(--pdf-heading-color);
-    font-family: var(--pdf-font);
+    color: #111;
+    font-family: var(--serif);
     line-height: 1.2;
     break-after: avoid;
   }
   .print-block h1 { margin: 0 0 .65em; font-size: 22pt; }
   .print-block h2 { margin: 1.15em 0 .5em; font-size: 17pt; }
   .print-block h3 { margin: 1em 0 .45em; font-size: 14pt; }
-  .print-layout[data-pdf-style="modern"] h1 { font-size: 21pt; letter-spacing: -.3pt; }
-  .print-layout[data-pdf-style="modern"] h2 { font-size: 16pt; }
-  .print-layout[data-pdf-style="modern"] h3 { font-size: 13pt; }
-  .print-layout[data-pdf-style="modern"] blockquote { border-color: #668698; }
   .print-block blockquote { margin: .9em 0; padding-left: 1em; border-left: 2px solid #888; color: #333; }
   .print-block ul, .print-block ol { margin: .55em 0 .8em; padding-left: 1.6em; }
-  .print-list { margin-bottom: .3em; }
-  .print-list ul, .print-list ol { margin: .2em 0; }
-  .print-block pre { margin: .8em 0; padding: .7em; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid #bbb; font: 9pt/1.45 var(--mono); text-align: left; hyphens: none; }
+  .print-block pre { margin: .8em 0; padding: .7em; white-space: pre-wrap; border: 1px solid #bbb; font: 9pt/1.45 var(--mono); }
   .print-block .inline-code { padding: .08em .3em; border: 1px solid #bbb; border-radius: 3px; background: #f4f4f4; font: .86em/1.4 var(--mono); }
   .print-block hr { margin: 1.5em 0; border: 0; border-top: 1px solid #777; }
   .print-math {
@@ -291,8 +256,7 @@ td code { display: block; min-width: 190px; max-width: 380px; white-space: pre-w
   .print-math.inline { display: inline; margin: 0 .12em; }
   .print-math.display { display: block; margin: .9em 0 1em; text-align: center; }
   .print-math-fallback { font-family: var(--serif); text-align: left; }
-  .print-math.display { break-inside: avoid; }
-  .print-continuation { margin-top: 0; }
+  .print-block, .print-math.display, .print-block blockquote, .print-block pre { break-inside: avoid; }
   .print-block mjx-container { margin: 0 !important; color: #111 !important; }
   .print-block mjx-container[jax="SVG"] > svg { max-width: 100% !important; overflow: visible; }
   html body .print-view mjx-assistive-mml,
@@ -305,8 +269,4 @@ td code { display: block; min-width: 190px; max-width: 380px; white-space: pre-w
     height: 0 !important;
     overflow: hidden !important;
   }
-@media print {
-  html, body { margin: 0 !important; padding: 0 !important; background: white; }
-  body > :not(.print-view) { display: none !important; }
-  .print-view.print-layout { position: static; left: auto; top: auto; }
 }

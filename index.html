@@ -6,6 +6,7 @@
   <meta name="color-scheme" content="light">
   <title>AI Math Document Editor</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="reader.css">
   <script>
     window.MathJax = {
       tex: {
@@ -25,13 +26,15 @@
   </script>
   <!-- Official MathJax 3.2.2 full TeX + SVG build, stored locally for offline use. -->
   <script id="mathjax-script" defer src="./mathjax.js"></script>
+  <script defer src="./pagination.js"></script>
+  <script defer src="./pdf-styles.js"></script>
 </head>
 <body>
   <header class="topbar" aria-label="Главная панель">
     <div class="brand">
       <div class="brand-mark" aria-hidden="true">∑</div>
       <div>
-        <strong>AI Math Document Editor</strong>
+        <strong>AI Math Document Editor · 1.6.3</strong>
         <span>LaTeX без самопроизвольных изменений</span>
       </div>
     </div>
@@ -44,8 +47,15 @@
       <button id="copy-ai-btn" class="button ghost" type="button">Копировать для ИИ</button>
       <button id="copy-original-btn" class="button ghost" type="button">Копировать оригинал</button>
       <button id="print-btn" class="button dark" type="button">Экспорт PDF</button>
+      <button id="reader-open" class="button primary" type="button">Озвучивание и визуализация</button>
     </div>
   </header>
+
+  <nav class="reader-tabs" role="tablist" aria-label="Режим работы">
+    <button id="document-tab" role="tab" aria-selected="true" aria-controls="document-workspace" type="button">Документ</button>
+    <button id="speech-tab" role="tab" aria-selected="false" aria-controls="reader-dialog" type="button" hidden>Озвучивание</button>
+    <button id="audio-draft-tab" role="tab" aria-selected="false" aria-controls="audio-draft-panel" type="button">Аудио → черновик</button>
+  </nav>
 
   <section class="formatbar" aria-label="Форматирование текста">
     <div class="format-group">
@@ -68,7 +78,7 @@
     </div>
   </section>
 
-  <main class="workspace">
+  <main id="document-workspace" class="workspace">
     <aside class="document-meta">
       <label for="title-input">Название</label>
       <input id="title-input" type="text" value="Без названия" autocomplete="off">
@@ -90,6 +100,15 @@
           <input id="markdown-toggle" type="checkbox" checked>
         </label>
         <p>Применяется только к новым вставкам и импортируемым Markdown-файлам. Формулы всегда защищены раньше.</p>
+      </div>
+
+      <div class="pdf-style-card">
+        <label for="pdf-style">Оформление PDF</label>
+        <select id="pdf-style">
+          <option value="classic">Классический — Times New Roman</option>
+          <option value="modern">Современный — Arial</option>
+        </select>
+        <p>Выравнивание текста по ширине. Стиль применяется при экспорте.</p>
       </div>
 
       <div class="tip-card">
@@ -171,6 +190,67 @@
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <section id="reader-dialog" class="reader-workspace" role="tabpanel" aria-labelledby="speech-tab" hidden>
+    <div class="reader-heading"><h2>Озвучивание статьи</h2><button id="reader-close" class="button ghost" type="button">К документу</button></div>
+    <details class="reader-options"><summary>Настройки голосов, скорости и пауз</summary><div class="reader-settings">
+      <label>Русский голос<select id="reader-voice-ru"></select></label>
+      <label>Английский голос и формулы<select id="reader-voice-en"></select></label>
+      <label>Скорость<input id="reader-rate" type="number" min="0.5" max="2" step="0.1" value="1"></label>
+      <label>Высота голоса<input id="reader-pitch" type="number" min="0" max="2" step="0.1" value="1"></label>
+      <label>Громкость<input id="reader-volume" type="range" min="0" max="1" step="0.05" value="1"></label>
+      <label>Пауза между фрагментами, мс<input id="reader-gap" type="number" min="0" max="3000" step="50" value="250"></label>
+      <label class="reader-check"><input id="reader-math" type="checkbox" checked>Читать формулы английским голосом</label>
+      <label class="reader-check"><input id="reader-code" type="checkbox">Читать код</label>
+    </div></details>
+    <div class="reader-controls">
+      <button id="reader-start" class="button primary" type="button">Читать с начала</button>
+      <button id="reader-cursor-start" class="button primary" type="button" disabled>Читать с курсора</button>
+      <button id="reader-pick-position" class="button ghost" type="button">Выбрать место в статье</button>
+      <button id="reader-pause" class="button ghost" type="button" disabled>Пауза</button>
+      <button id="reader-stop" class="button ghost" type="button">Остановить</button>
+      <span id="reader-status" role="status">Готово</span>
+    </div>
+    <p class="reader-note">Выберите место в поле статьи ниже и нажмите «Читать с курсора». Текущая позиция отмечается при воспроизведении. Выбор другого места остановит чтение. Формулы в поле статьи показаны своим точным LaTeX.</p>
+    <div id="reader-stage" class="reader-stage">
+      <div class="reader-focus"><span id="reader-before"></span><span id="reader-current">Статья готова к чтению</span><span id="reader-after"></span></div>
+      <div class="reader-stage-footer"><span id="reader-progress">—</span><button id="reader-fullscreen" class="button ghost" type="button">На весь экран / выход</button><span>Esc — выйти из полноэкранного режима</span></div>
+    </div>
+    <section class="reader-article-panel" aria-label="Навигация по статье">
+      <div class="reader-article-header"><strong>Статья — выбор места чтения</strong><label><input id="reader-follow" type="checkbox" checked>Следить за чтением</label></div>
+      <div class="reader-article-wrap"><textarea id="reader-article" spellcheck="false" aria-label="Статья: установите курсор для чтения с выбранного места; текст защищён от изменений"></textarea><span id="reader-visible-caret" aria-hidden="true" hidden></span></div>
+    </section>
+    <section class="media-export-panel">
+      <strong>Экспорт озвучивания и узкого видео</strong>
+      <div class="reader-controls"><label>Голос экспорта: русский<select id="export-voice-ru"></select></label><label>Английский<select id="export-voice-en"></select></label></div>
+      <div class="reader-controls"><button id="export-audio" class="button primary" type="button">Сохранить аудио WAV</button><button id="export-video" class="button primary" type="button">Сохранить видео MP4 · 960×240</button><label><input id="export-from-cursor" type="checkbox">От выбранного курсора</label><button id="export-cancel" class="button ghost" type="button" hidden>Отменить экспорт</button></div>
+      <div id="media-status" role="status">Готово к экспорту</div>
+      <canvas id="media-preview" width="960" height="240" hidden aria-label="Предпросмотр экспортируемого видео"></canvas>
+      <p class="reader-note">В видео входят только слова и формулы на чёрном фоне, без записи экрана. Выберите голоса экспорта выше: не все голоса браузерного чтения умеют сохранять аудио. Скорость, высота, громкость и паузы берутся из настроек чтения. Если голос не выдаёт метки аудиофайла, синхронизация строится по его событиям воспроизведения: возможны небольшие отклонения, подготовка идёт примерно в темпе речи. Без событий слов формула или фрагмент показываются целиком.</p>
+    </section>
+    <p class="reader-note">Используются существующие системные голоса, без Voicebox и новых моделей. Показывается исходное написание слов и инициалов. Формулы показывает MathJax; произношение сложных формул может быть неполным. Для работы без интернета выбирайте локальный голос.</p>
+  </section>
+  <section id="audio-draft-panel" class="audio-draft-panel" role="tabpanel" aria-labelledby="audio-draft-tab" hidden>
+    <div class="reader-heading"><h2>Аудио → черновик</h2><span>Локальное распознавание · Whisper</span></div>
+    <div class="reader-controls"><button id="draft-audio-open" class="button primary" type="button">Импорт аудио</button><span id="draft-audio-name">Файл не выбран</span><label>Язык<select id="draft-language"><option value="ru">Русский</option><option value="en">Английский</option><option value="auto">Авто</option></select></label><button id="draft-transcribe" class="button primary" type="button" disabled>Распознать в текст</button><button id="draft-cancel" class="button ghost" type="button" hidden>Отменить</button></div>
+    <audio id="draft-audio-player" controls preload="metadata" hidden></audio>
+    <details class="reader-options"><summary>Пакетное распознавание и автоматические TXT</summary>
+      <div class="reader-controls"><button id="draft-batch-open" class="button primary" type="button">Добавить несколько аудио</button><button id="draft-batch-start" class="button primary" type="button" disabled>Распознать очередь</button><button id="draft-folder" class="button ghost" type="button">Папка для TXT</button><span id="draft-folder-name">Папка не выбрана</span></div>
+      <div class="reader-controls"><label>Результат<select id="draft-output-mode"><option value="draft">В общий черновик</option><option value="files">Сразу в TXT, без черновика</option></select></label><label>Порог / размер частей<select id="draft-output-limit"><option value="0">Без разделения / автосброса</option><option value="5000">5 000 знаков</option><option value="10000">10 000 знаков</option></select></label></div>
+      <ol id="draft-queue"></ol><div id="draft-batch-status" role="status"></div>
+      <p class="reader-note">Файлы распознаются по очереди, в указанном порядке; стрелками можно изменить порядок. В черновике порог проверяется после каждого результата: текст сохраняется в TXT и только затем очищается. В режиме TXT каждый исходный файл получает собственный TXT или нумерованные части. Уже существующие файлы не перезаписываются. Ошибка останавливает очередь; завершённые результаты сохраняются. Отмена не запускает следующие файлы.</p>
+    </details>
+    <div id="draft-status" role="status">Проверка локального распознавания…</div>
+    <p id="draft-history" class="reader-note" aria-live="polite"></p>
+    <p id="draft-storage-warning" role="alert" hidden>Не удалось сохранить черновик автоматически. Текст остаётся в редакторе: сохраните его в TXT перед закрытием приложения.</p>
+    <details><summary>Подсказка распознаванию: имена и термины</summary><input id="draft-prompt" type="text" maxlength="2000" placeholder="Например: Н.А. Тенетко, инволюция, координатное пространство"></details>
+    <div class="reader-controls"><button id="draft-new" class="button ghost" type="button">Новый черновик</button><button id="draft-save" class="button ghost" type="button">Сохранить TXT</button><button id="draft-copy" class="button ghost" type="button">Копировать</button><button id="draft-to-document" class="button primary" type="button">Открыть как статью</button></div>
+    <label for="draft-editor">Черновик — свободное редактирование</label><textarea id="draft-editor" spellcheck="true" placeholder="Импортируйте запись или пишите здесь. Текст черновика сохраняется автоматически отдельно от статьи."></textarea>
+    <p class="reader-note">Никакой отправки в облако и автоматической правки текста. Распознавание может ошибаться, особенно в формулах и именах: проверьте черновик. При повторном распознавании текст добавляется, а не заменяет ваши правки. Импорт: OGG (Vorbis/Opus), MP3, WAV, M4A, AIFF, FLAC. Для OGG используется установленный локальный FFmpeg.</p>
+  </section>
+  <script src="speech-adapter.js"></script>
+  <script src="article-reader.js"></script>
+  <script src="media-export.js"></script>
+  <script src="audio-draft.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
