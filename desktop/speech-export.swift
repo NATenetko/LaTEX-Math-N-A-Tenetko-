@@ -10,6 +10,21 @@ struct Result: Codable { let duration: Double; let segments: [Segment] }
 func emit(_ value: [String: Any]) { if let d = try? JSONSerialization.data(withJSONObject: value) { print(String(decoding:d,as:UTF8.self)); fflush(stdout) } }
 func fail(_ message: String) -> Never { FileHandle.standardError.write(Data((message+"\n").utf8)); exit(1) }
 
+// Match Chromium's Web Speech -> AVSpeech mapping used by Electron preview.
+// https://chromium.googlesource.com/chromium/src/+/HEAD/content/browser/speech/tts_mac.mm
+// Above 1, multiplying the default directly makes exported speech too fast.
+func nativeSpeechRate(_ webRate: Float) -> Float {
+    let rate: Float
+    if webRate < 1 {
+        rate = webRate * AVSpeechUtteranceDefaultSpeechRate
+    } else {
+        let proportion = min(webRate - 1, 3) / 3
+        rate = AVSpeechUtteranceDefaultSpeechRate + proportion *
+            (AVSpeechUtteranceMaximumSpeechRate - AVSpeechUtteranceDefaultSpeechRate)
+    }
+    return min(AVSpeechUtteranceMaximumSpeechRate, max(AVSpeechUtteranceMinimumSpeechRate, rate))
+}
+
 final class Writer: NSObject, AVSpeechSynthesizerDelegate {
     let request: Request, directory: URL
     let synth = AVSpeechSynthesizer()
@@ -21,7 +36,7 @@ final class Writer: NSObject, AVSpeechSynthesizerDelegate {
     init(_ request: Request, _ directory: URL) { self.request=request; self.directory=directory; super.init(); synth.delegate=self }
     func utterance(_ voice:AVSpeechSynthesisVoice) -> AVSpeechUtterance {
         let u=AVSpeechUtterance(string:request.pieces[index].text); u.voice=voice
-        u.rate=min(AVSpeechUtteranceMaximumSpeechRate,max(AVSpeechUtteranceMinimumSpeechRate,AVSpeechUtteranceDefaultSpeechRate*request.rate))
+        u.rate=nativeSpeechRate(request.rate)
         u.pitchMultiplier=request.pitch; u.volume=request.volume; return u
     }
     func speechSynthesizer(_ synthesizer:AVSpeechSynthesizer,didStart utterance:AVSpeechUtterance) {
@@ -124,6 +139,12 @@ final class Writer: NSObject, AVSpeechSynthesizerDelegate {
     }
 }
 
+// Diagnostic only: verify the actual compiled mapping without synthesizing speech.
+if CommandLine.arguments.count == 2 && CommandLine.arguments[1] == "--rate-map" {
+    let rows = [Float(0.5), 0.8, 1, 1.5, 2, 4].map { ["web": $0, "native": nativeSpeechRate($0)] }
+    let data = try JSONSerialization.data(withJSONObject: rows)
+    print(String(decoding: data, as: UTF8.self)); exit(0)
+}
 if CommandLine.arguments.count == 2 && CommandLine.arguments[1] == "--voices" {
     let voices=AVSpeechSynthesisVoice.speechVoices().map { ["id":$0.identifier,"name":$0.name,"lang":$0.language] }
     let data=try JSONSerialization.data(withJSONObject:voices); print(String(decoding:data,as:UTF8.self)); exit(0)

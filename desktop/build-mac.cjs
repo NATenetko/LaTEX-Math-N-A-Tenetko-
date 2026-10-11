@@ -22,7 +22,7 @@ for (const name of ['index.html', 'app.js', 'styles.css', 'pagination.js', 'pdf-
 const plist = path.join(output, 'Contents', 'Info.plist');
 for (const [key, value] of Object.entries({
   CFBundleDisplayName: 'LaTEX Math Tenetko', CFBundleName: 'LaTEX Math Tenetko',
-  CFBundleIdentifier: 'org.natenetko.math-editor', CFBundleShortVersionString: '1.6.3', CFBundleVersion: '1.6.3'
+  CFBundleIdentifier: 'org.natenetko.math-editor', CFBundleShortVersionString: '1.6.4', CFBundleVersion: '1.6.4'
 })) cp.execFileSync('/usr/libexec/PlistBuddy', ['-c', `Set :${key} ${value}`, plist]);
 // Local ad-hoc signature. Distribution notarization requires the author's Apple account.
 cp.execFileSync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', output]);
